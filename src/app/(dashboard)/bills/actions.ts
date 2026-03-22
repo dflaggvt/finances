@@ -4,7 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { billSchema } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
 import { generatePaymentDates } from "@/lib/bill-utils";
-import type { Bill } from "@/lib/types";
+import {
+  discoverBillsWithLLM,
+  DEFAULT_DISCOVERY_PROMPT,
+} from "@/lib/llm-discovery";
+import { rematchTransactions } from "@/app/(dashboard)/accounts/import-actions";
+import type { Bill, DiscoveredBill } from "@/lib/types";
 
 async function getHouseholdId() {
   const supabase = await createClient();
@@ -133,6 +138,128 @@ export async function getBillAmountHistory(billId: string) {
 
   if (error) return { error: error.message };
   return { data };
+}
+
+export async function discoverBills(): Promise<{
+  data?: DiscoveredBill[];
+  error?: string;
+}> {
+  if (!process.env.OPENAI_API_KEY) {
+    return { error: "OPENAI_API_KEY not configured" };
+  }
+
+  const { supabase, householdId } = await getHouseholdId();
+
+  // Only fetch unmatched transactions from the last 6 months
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+  const { data: transactions } = await supabase
+    .from("transactions")
+    .select("date, amount, description, category")
+    .eq("household_id", householdId)
+    .is("bill_id", null)
+    .gte("date", sixMonthsAgo.toISOString().split("T")[0])
+    .order("date", { ascending: false })
+    .limit(500);
+
+  if (!transactions || transactions.length === 0) {
+    return { error: "No unmatched transactions found to analyze" };
+  }
+
+  // Get existing bill names to avoid duplicates
+  const { data: existingBills } = await supabase
+    .from("bills")
+    .select("name")
+    .eq("household_id", householdId)
+    .eq("is_active", true);
+
+  const existingNames = (existingBills || []).map((b) => b.name);
+
+  // Get discovery prompt
+  const { data: settings } = await supabase
+    .from("household_settings")
+    .select("discovery_prompt")
+    .eq("household_id", householdId)
+    .single();
+
+  const prompt = settings?.discovery_prompt || DEFAULT_DISCOVERY_PROMPT;
+
+  const txns = transactions.map((t) => ({
+    date: t.date,
+    amount: Number(t.amount),
+    description: t.description,
+    category: t.category,
+  }));
+
+  const discovered = await discoverBillsWithLLM(txns, existingNames, prompt);
+
+  return {
+    data: discovered.map((b) => ({
+      name: b.name,
+      amount: b.amount,
+      due_day: b.due_day,
+      frequency: b.frequency as DiscoveredBill["frequency"],
+      category: b.category as DiscoveredBill["category"],
+      bill_type: b.bill_type as DiscoveredBill["bill_type"],
+      match_pattern: b.match_pattern,
+      confidence: b.confidence,
+      sample_transactions: b.sample_transactions || [],
+    })),
+  };
+}
+
+export async function createBillsFromDiscovery(
+  bills: Array<{
+    name: string;
+    amount: number;
+    due_day: number;
+    frequency: string;
+    category: string;
+    bill_type: string;
+    match_pattern: string;
+  }>
+): Promise<{ success?: boolean; error?: string; created?: number }> {
+  const { supabase, householdId } = await getHouseholdId();
+
+  let created = 0;
+
+  for (const bill of bills) {
+    const parsed = billSchema.safeParse({
+      ...bill,
+      is_auto_pay: false,
+    });
+
+    if (!parsed.success) continue;
+
+    const { data: newBill, error } = await supabase
+      .from("bills")
+      .insert({
+        ...parsed.data,
+        household_id: householdId,
+        account_id: null,
+        match_pattern: bill.match_pattern || null,
+        url: null,
+        notes: null,
+      })
+      .select()
+      .single();
+
+    if (error || !newBill) continue;
+
+    await generateBillPayments(supabase, newBill as Bill, householdId);
+    created++;
+  }
+
+  // Re-match transactions to link them to the newly created bills
+  if (created > 0) {
+    await rematchTransactions();
+  }
+
+  revalidatePath("/bills");
+  revalidatePath("/transactions");
+  revalidatePath("/");
+  return { success: true, created };
 }
 
 async function generateBillPayments(

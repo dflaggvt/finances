@@ -4,17 +4,20 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { updateMatchingPrompt } from "@/app/(dashboard)/settings/actions";
 
-interface MatchingPromptEditorProps {
+interface PromptEditorProps {
+  label: string;
   currentPrompt: string;
   defaultPrompt: string;
+  onSave: (prompt: string) => Promise<{ error?: string; success?: boolean }>;
 }
 
-export function MatchingPromptEditor({
+export function PromptEditor({
+  label,
   currentPrompt,
   defaultPrompt,
-}: MatchingPromptEditorProps) {
+  onSave,
+}: PromptEditorProps) {
   const [prompt, setPrompt] = useState(currentPrompt);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
@@ -22,7 +25,7 @@ export function MatchingPromptEditor({
   async function handleSave() {
     setSaving(true);
     setStatus("idle");
-    const result = await updateMatchingPrompt(prompt);
+    const result = await onSave(prompt);
     if (result.error) {
       setStatus("error");
     } else {
@@ -40,9 +43,8 @@ export function MatchingPromptEditor({
     <Card>
       <CardContent className="space-y-4 pt-6">
         <div className="space-y-2">
-          <Label htmlFor="matching-prompt">LLM System Prompt</Label>
+          <Label>{label}</Label>
           <textarea
-            id="matching-prompt"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={12}

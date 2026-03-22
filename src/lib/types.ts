@@ -128,6 +128,18 @@ export interface Transaction {
   created_at: string;
 }
 
+export interface DiscoveredBill {
+  name: string;
+  amount: number;
+  due_day: number;
+  frequency: BillFrequency;
+  category: BillCategory;
+  bill_type: BillType;
+  match_pattern: string;
+  confidence: number;
+  sample_transactions: string[];
+}
+
 export interface CashFlowDay {
   date: Date;
   startBalance: number;

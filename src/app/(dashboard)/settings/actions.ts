@@ -57,3 +57,29 @@ export async function updateMatchingPrompt(prompt: string) {
   revalidatePath("/settings");
   return { success: true };
 }
+
+export async function updateDiscoveryPrompt(prompt: string) {
+  const { supabase, householdId } = await getHouseholdId();
+
+  const { data: existing } = await supabase
+    .from("household_settings")
+    .select("household_id")
+    .eq("household_id", householdId)
+    .single();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("household_settings")
+      .update({ discovery_prompt: prompt })
+      .eq("household_id", householdId);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase
+      .from("household_settings")
+      .insert({ household_id: householdId, discovery_prompt: prompt });
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/settings");
+  return { success: true };
+}
