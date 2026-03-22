@@ -22,10 +22,39 @@ async function getHouseholdId() {
   return { supabase, householdId: profile.household_id };
 }
 
+async function recalculateBalance(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountId: string,
+  householdId: string
+) {
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("starting_balance")
+    .eq("id", accountId)
+    .single();
+
+  const { data: txns } = await supabase
+    .from("transactions")
+    .select("amount")
+    .eq("account_id", accountId);
+
+  const txnTotal = txns
+    ? txns.reduce((sum, t) => sum + Number(t.amount), 0)
+    : 0;
+  const balance = Number(account?.starting_balance || 0) + txnTotal;
+
+  await supabase
+    .from("accounts")
+    .update({ balance })
+    .eq("id", accountId)
+    .eq("household_id", householdId);
+}
+
 export async function importTransactions(
   accountId: string,
   source: TransactionSource,
-  csvContent: string
+  csvContent: string,
+  startingBalance?: number
 ) {
   const { supabase, householdId } = await getHouseholdId();
 
@@ -62,20 +91,20 @@ export async function importTransactions(
   const imported = data?.length ?? 0;
   const skipped = rows.length - imported;
 
-  // Update account balance to the running total of all transactions
-  const { data: balanceData } = await supabase
-    .from("transactions")
-    .select("amount")
-    .eq("account_id", accountId);
-
-  if (balanceData) {
-    const balance = balanceData.reduce((sum, t) => sum + Number(t.amount), 0);
+  // Update starting balance if provided
+  if (startingBalance !== undefined) {
     await supabase
       .from("accounts")
-      .update({ balance })
+      .update({
+        starting_balance: startingBalance,
+        starting_balance_date: parsed[parsed.length - 1].date,
+      })
       .eq("id", accountId)
       .eq("household_id", householdId);
   }
+
+  // Recalculate account balance = starting_balance + sum(transactions)
+  await recalculateBalance(supabase, accountId, householdId);
 
   revalidatePath("/accounts");
   revalidatePath("/");
@@ -118,20 +147,7 @@ export async function deleteImportBatch(batchId: string) {
 
   // Recalculate balance
   if (accountId) {
-    const { data: balanceData } = await supabase
-      .from("transactions")
-      .select("amount")
-      .eq("account_id", accountId);
-
-    const balance = balanceData
-      ? balanceData.reduce((sum, t) => sum + Number(t.amount), 0)
-      : 0;
-
-    await supabase
-      .from("accounts")
-      .update({ balance })
-      .eq("id", accountId)
-      .eq("household_id", householdId);
+    await recalculateBalance(supabase, accountId, householdId);
   }
 
   revalidatePath("/accounts");

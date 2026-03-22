@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Upload } from "lucide-react";
 import { importTransactions } from "@/app/(dashboard)/accounts/import-actions";
 import type { Account, TransactionSource } from "@/lib/types";
@@ -42,6 +43,9 @@ export function ImportCSVDialog({ account }: ImportCSVDialogProps) {
     total: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [startingBalance, setStartingBalance] = useState(
+    String(account.starting_balance || "")
+  );
   const fileRef = useRef<HTMLInputElement>(null);
 
   function inferBank(institution: string | null): TransactionSource {
@@ -62,7 +66,8 @@ export function ImportCSVDialog({ account }: ImportCSVDialogProps) {
     setResult(null);
 
     const content = await file.text();
-    const res = await importTransactions(account.id, source, content);
+    const balance = startingBalance ? parseFloat(startingBalance) : undefined;
+    const res = await importTransactions(account.id, source, content, balance);
 
     if ("error" in res && res.error) {
       setError(res.error);
@@ -134,6 +139,21 @@ export function ImportCSVDialog({ account }: ImportCSVDialogProps) {
                   accept=".csv"
                   className="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/90 file:cursor-pointer"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Starting Balance (before first transaction)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g. 2666.10"
+                  value={startingBalance}
+                  onChange={(e) => setStartingBalance(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The account balance before the earliest transaction in the CSV.
+                  Only needed on first import.
+                </p>
               </div>
 
               {error && (

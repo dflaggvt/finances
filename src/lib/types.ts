@@ -47,6 +47,8 @@ export interface Account {
   type: AccountType;
   institution: string | null;
   balance: number;
+  starting_balance: number;
+  starting_balance_date: string | null;
   credit_limit: number | null;
   interest_rate: number | null;
   minimum_payment: number | null;
