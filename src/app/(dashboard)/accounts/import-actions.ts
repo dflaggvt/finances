@@ -89,16 +89,12 @@ export async function importTransactions(
 
   const { data, error } = await supabase
     .from("transactions")
-    .upsert(rows, {
-      onConflict: "account_id,date,amount,description",
-      ignoreDuplicates: true,
-    })
+    .insert(rows)
     .select();
 
   if (error) return { error: error.message };
 
   const imported = data?.length ?? 0;
-  const skipped = rows.length - imported;
 
   // Update starting balance if provided
   if (startingBalance !== undefined) {
@@ -117,7 +113,7 @@ export async function importTransactions(
 
   revalidatePath("/accounts");
   revalidatePath("/");
-  return { success: true, imported, skipped, total: rows.length };
+  return { success: true, imported, total: rows.length };
 }
 
 export async function getTransactions(accountId: string) {

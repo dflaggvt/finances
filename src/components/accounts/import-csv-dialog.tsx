@@ -39,7 +39,6 @@ export function ImportCSVDialog({ account }: ImportCSVDialogProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     imported: number;
-    skipped: number;
     total: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +73,6 @@ export function ImportCSVDialog({ account }: ImportCSVDialogProps) {
     } else if ("success" in res) {
       setResult({
         imported: res.imported!,
-        skipped: res.skipped!,
         total: res.total!,
       });
     }
@@ -107,7 +105,6 @@ export function ImportCSVDialog({ account }: ImportCSVDialogProps) {
               </p>
               <p className="text-sm text-muted-foreground">
                 {result.imported} transactions imported
-                {result.skipped > 0 && `, ${result.skipped} duplicates skipped`}
               </p>
               <DialogFooter>
                 <Button onClick={handleClose}>Done</Button>
