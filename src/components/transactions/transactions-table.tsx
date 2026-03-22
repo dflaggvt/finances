@@ -59,7 +59,11 @@ export function TransactionsTable({
             onValueChange={handleAccountFilter}
           >
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue>
+                {currentAccountId
+                  ? accountMap.get(currentAccountId)?.name || "Unknown"
+                  : "All Accounts"}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Accounts</SelectItem>
