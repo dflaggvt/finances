@@ -97,6 +97,23 @@ export interface Income {
   updated_at: string;
 }
 
+export type TransactionSource = "wells_fargo" | "chase" | "manual";
+
+export interface Transaction {
+  id: string;
+  household_id: string;
+  account_id: string;
+  date: string;
+  amount: number;
+  description: string;
+  category: string | null;
+  check_number: string | null;
+  memo: string | null;
+  source: TransactionSource;
+  import_batch_id: string | null;
+  created_at: string;
+}
+
 export interface CashFlowDay {
   date: Date;
   startBalance: number;

@@ -8,6 +8,7 @@ import { Popover, PopoverContent } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Pencil, Trash2, RefreshCw } from "lucide-react";
 import { AccountForm } from "./account-form";
+import { ImportCSVDialog } from "./import-csv-dialog";
 import { deleteAccount, updateBalance } from "@/app/(dashboard)/accounts/actions";
 import { formatCurrency, ACCOUNT_TYPE_LABELS } from "@/lib/utils";
 import type { Account } from "@/lib/types";
@@ -82,7 +83,8 @@ export function AccountCard({ account }: { account: Account }) {
             </p>
           )}
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <ImportCSVDialog account={account} />
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <Button
               variant="outline"

@@ -11,12 +11,14 @@ import {
   TrendingUp,
   Calendar,
   Zap,
+  ArrowLeftRight,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/bills", label: "Bills", icon: Receipt },
   { href: "/accounts", label: "Accounts", icon: Landmark },
+  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/income", label: "Income", icon: DollarSign },
   { href: "/cashflow", label: "Cash Flow", icon: TrendingUp },
   { href: "/calendar", label: "Calendar", icon: Calendar },
