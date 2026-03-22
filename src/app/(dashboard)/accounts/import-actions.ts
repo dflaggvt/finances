@@ -29,7 +29,7 @@ async function recalculateBalance(
 ) {
   const { data: account } = await supabase
     .from("accounts")
-    .select("starting_balance")
+    .select("starting_balance, type")
     .eq("id", accountId)
     .single();
 
@@ -41,7 +41,16 @@ async function recalculateBalance(
   const txnTotal = txns
     ? txns.reduce((sum, t) => sum + Number(t.amount), 0)
     : 0;
-  const balance = Number(account?.starting_balance || 0) + txnTotal;
+
+  const startingBalance = Number(account?.starting_balance || 0);
+  const isDebt = account?.type === "credit_card" || account?.type === "loan";
+
+  // For credit cards/loans: purchases (negative in CSV) increase balance owed
+  // so balance = starting_balance - txnTotal
+  // For checking/savings: balance = starting_balance + txnTotal
+  const balance = isDebt
+    ? startingBalance - txnTotal
+    : startingBalance + txnTotal;
 
   await supabase
     .from("accounts")
