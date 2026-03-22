@@ -37,6 +37,7 @@ interface BillsTableProps {
 
 export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [mergeSelection, setMergeSelection] = useState<Set<string>>(new Set());
   const [merging, setMerging] = useState(false);
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
@@ -245,16 +246,12 @@ export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
                             Mark as Paid
                           </DropdownMenuItem>
                         )}
-                        <BillForm
-                          bill={bill}
-                          accounts={accounts}
-                          trigger={
-                            <DropdownMenuItem>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                          }
-                        />
+                        <DropdownMenuItem
+                          onClick={() => setEditingBill(bill)}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => handleDelete(bill.id)}
                           disabled={deleting === bill.id}
@@ -273,6 +270,16 @@ export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
         </TableBody>
       </Table>
       </div>
+      {editingBill && (
+        <BillForm
+          bill={editingBill}
+          accounts={accounts}
+          open={true}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setEditingBill(null);
+          }}
+        />
+      )}
     </div>
   );
 }

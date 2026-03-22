@@ -25,11 +25,15 @@ import { CATEGORY_LABELS, FREQUENCY_LABELS } from "@/lib/utils";
 interface BillFormProps {
   bill?: Bill;
   accounts: Account[];
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function BillForm({ bill, accounts, trigger }: BillFormProps) {
-  const [open, setOpen] = useState(false);
+export function BillForm({ bill, accounts, trigger, open: controlledOpen, onOpenChange }: BillFormProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -52,9 +56,11 @@ export function BillForm({ bill, accounts, trigger }: BillFormProps) {
 
   return (
     <>
-      <span onClick={() => setOpen(true)} className="cursor-pointer">
-        {trigger}
-      </span>
+      {trigger && (
+        <span onClick={() => setOpen(true)} className="cursor-pointer">
+          {trigger}
+        </span>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
