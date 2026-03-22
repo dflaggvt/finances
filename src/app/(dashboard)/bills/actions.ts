@@ -39,6 +39,7 @@ export async function createBill(formData: FormData) {
       ...parsed.data,
       household_id: householdId,
       account_id: parsed.data.account_id || null,
+      match_pattern: parsed.data.match_pattern || null,
       url: parsed.data.url || null,
       notes: parsed.data.notes || null,
     })
@@ -70,6 +71,7 @@ export async function updateBill(id: string, formData: FormData) {
     .update({
       ...parsed.data,
       account_id: parsed.data.account_id || null,
+      match_pattern: parsed.data.match_pattern || null,
       url: parsed.data.url || null,
       notes: parsed.data.notes || null,
     })
@@ -117,6 +119,20 @@ export async function markBillPaid(paymentId: string) {
   revalidatePath("/");
   revalidatePath("/calendar");
   return { success: true };
+}
+
+export async function getBillAmountHistory(billId: string) {
+  const { supabase } = await getHouseholdId();
+
+  const { data, error } = await supabase
+    .from("bill_amount_history")
+    .select("*")
+    .eq("bill_id", billId)
+    .order("effective_date", { ascending: false })
+    .limit(20);
+
+  if (error) return { error: error.message };
+  return { data };
 }
 
 async function generateBillPayments(

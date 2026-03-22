@@ -200,6 +200,22 @@ export function BillForm({ bill, accounts, trigger }: BillFormProps) {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="match_pattern">
+                Transaction Match Pattern (optional)
+              </Label>
+              <Input
+                id="match_pattern"
+                name="match_pattern"
+                defaultValue={bill?.match_pattern || ""}
+                placeholder="e.g. VERIZON, CON ED"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated keywords to match against imported transactions.
+                When matched, the bill amount auto-updates.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="notes">Notes (optional)</Label>
               <Input
                 id="notes"

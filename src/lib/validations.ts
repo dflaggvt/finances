@@ -13,6 +13,7 @@ export const billSchema = z.object({
   bill_type: z.enum(["fixed", "variable", "subscription", "irregular"]),
   is_auto_pay: z.coerce.boolean().default(false),
   account_id: z.string().uuid().nullable().optional(),
+  match_pattern: z.string().nullable().optional(),
   url: z.string().url().nullable().optional().or(z.literal("")),
   notes: z.string().nullable().optional(),
 });

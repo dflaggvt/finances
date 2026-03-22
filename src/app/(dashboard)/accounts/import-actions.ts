@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { parseCSV } from "@/lib/csv-parsers";
+import { matchTransactionsToBills } from "@/lib/bill-matching";
 import type { TransactionSource } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
@@ -59,6 +60,74 @@ async function recalculateBalance(
     .eq("household_id", householdId);
 }
 
+async function matchAndUpdateBills(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  householdId: string,
+  parsed: ReturnType<typeof parseCSV>,
+  insertedRows: { id: string }[]
+) {
+  // Get bills with match patterns
+  const { data: bills } = await supabase
+    .from("bills")
+    .select("id, match_pattern, amount, household_id")
+    .eq("household_id", householdId)
+    .not("match_pattern", "is", null);
+
+  if (!bills || bills.length === 0) return 0;
+
+  const matches = matchTransactionsToBills(parsed, bills);
+  if (matches.length === 0) return 0;
+
+  // Link transactions to bills
+  for (const match of matches) {
+    const txnRow = insertedRows[match.transactionIndex];
+    if (txnRow) {
+      await supabase
+        .from("transactions")
+        .update({ bill_id: match.billId })
+        .eq("id", txnRow.id);
+    }
+  }
+
+  // Find the most recent transaction per bill and update amount if changed
+  const latestByBill = new Map<string, { amount: number; date: string }>();
+  for (const match of matches) {
+    const existing = latestByBill.get(match.billId);
+    if (!existing || match.transactionDate > existing.date) {
+      latestByBill.set(match.billId, {
+        amount: match.transactionAmount,
+        date: match.transactionDate,
+      });
+    }
+  }
+
+  let billsUpdated = 0;
+  for (const [billId, { amount, date }] of latestByBill) {
+    const bill = bills.find((b) => b.id === billId)!;
+    if (Math.abs(Number(bill.amount) - amount) < 0.01) continue;
+
+    // Record the old amount in history
+    await supabase.from("bill_amount_history").insert({
+      bill_id: billId,
+      household_id: householdId,
+      amount: bill.amount,
+      effective_date: date,
+      source: "auto",
+    });
+
+    // Update the bill with the new amount
+    await supabase
+      .from("bills")
+      .update({ amount })
+      .eq("id", billId)
+      .eq("household_id", householdId);
+
+    billsUpdated++;
+  }
+
+  return billsUpdated;
+}
+
 export async function importTransactions(
   accountId: string,
   source: TransactionSource,
@@ -111,9 +180,13 @@ export async function importTransactions(
   // Recalculate account balance = starting_balance + sum(transactions)
   await recalculateBalance(supabase, accountId, householdId);
 
+  // Match transactions to bills and update amounts
+  const billsUpdated = await matchAndUpdateBills(supabase, householdId, parsed, data || []);
+
   revalidatePath("/accounts");
+  revalidatePath("/bills");
   revalidatePath("/");
-  return { success: true, imported, total: rows.length };
+  return { success: true, imported, total: rows.length, billsUpdated };
 }
 
 export async function getTransactions(accountId: string) {

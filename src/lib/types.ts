@@ -68,11 +68,22 @@ export interface Bill {
   bill_type: BillType;
   is_auto_pay: boolean;
   account_id: string | null;
+  match_pattern: string | null;
   url: string | null;
   notes: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface BillAmountHistory {
+  id: string;
+  bill_id: string;
+  household_id: string;
+  amount: number;
+  effective_date: string;
+  source: "manual" | "auto";
+  created_at: string;
 }
 
 export interface BillPayment {
@@ -112,6 +123,7 @@ export interface Transaction {
   check_number: string | null;
   memo: string | null;
   source: TransactionSource;
+  bill_id: string | null;
   import_batch_id: string | null;
   created_at: string;
 }
