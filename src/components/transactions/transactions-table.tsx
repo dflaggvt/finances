@@ -1,6 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
+import { rematchTransactions } from "@/app/(dashboard)/accounts/import-actions";
 import {
   Table,
   TableBody,
@@ -29,17 +33,37 @@ const SOURCE_LABELS: Record<string, string> = {
 interface TransactionsTableProps {
   transactions: Transaction[];
   accounts: Account[];
+  bills: { id: string; name: string }[];
   currentAccountId?: string;
 }
 
 export function TransactionsTable({
   transactions,
   accounts,
+  bills,
   currentAccountId,
 }: TransactionsTableProps) {
   const router = useRouter();
+  const [matching, setMatching] = useState(false);
+  const [matchResult, setMatchResult] = useState<string | null>(null);
 
   const accountMap = new Map(accounts.map((a) => [a.id, a]));
+  const billMap = new Map(bills.map((b) => [b.id, b]));
+
+  async function handleRematch() {
+    setMatching(true);
+    setMatchResult(null);
+    const result = await rematchTransactions(currentAccountId);
+    if ("error" in result && result.error) {
+      setMatchResult(`Error: ${result.error}`);
+    } else if ("matched" in result) {
+      setMatchResult(
+        `Matched ${result.matched} transactions, updated ${result.billsUpdated} bills`
+      );
+      router.refresh();
+    }
+    setMatching(false);
+  }
 
   function handleAccountFilter(value: string | null) {
     if (!value || value === "all") {
@@ -78,6 +102,18 @@ export function TransactionsTable({
         <span className="text-sm text-muted-foreground">
           {transactions.length} transactions
         </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRematch}
+          disabled={matching || transactions.length === 0}
+        >
+          <RefreshCw className={`mr-1 h-3 w-3 ${matching ? "animate-spin" : ""}`} />
+          {matching ? "Matching..." : "Re-match Bills"}
+        </Button>
+        {matchResult && (
+          <span className="text-sm text-muted-foreground">{matchResult}</span>
+        )}
       </div>
 
       <div className="rounded-md border">
@@ -88,6 +124,7 @@ export function TransactionsTable({
               <TableHead>Description</TableHead>
               <TableHead>Account</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Bill</TableHead>
               <TableHead className="text-right">Amount</TableHead>
               <TableHead>Source</TableHead>
             </TableRow>
@@ -96,7 +133,7 @@ export function TransactionsTable({
             {transactions.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="py-8 text-center text-muted-foreground"
                 >
                   No transactions yet. Import a CSV from the Accounts page.
@@ -123,6 +160,13 @@ export function TransactionsTable({
                     {txn.category && (
                       <Badge variant="outline">{txn.category}</Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    {txn.bill_id && billMap.get(txn.bill_id) ? (
+                      <Badge variant="secondary">
+                        {billMap.get(txn.bill_id)!.name}
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell
                     className={`text-right whitespace-nowrap font-medium ${

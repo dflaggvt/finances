@@ -12,6 +12,7 @@ import {
   Calendar,
   Zap,
   ArrowLeftRight,
+  Settings,
 } from "lucide-react";
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/cashflow", label: "Cash Flow", icon: TrendingUp },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/simulator", label: "Simulator", icon: Zap },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar() {

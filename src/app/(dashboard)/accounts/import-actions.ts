@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { parseCSV } from "@/lib/csv-parsers";
-import { matchTransactionsToBills } from "@/lib/bill-matching";
+import { matchWithLLM } from "@/lib/llm-matching";
 import type { TransactionSource } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
@@ -60,53 +60,83 @@ async function recalculateBalance(
     .eq("household_id", householdId);
 }
 
-async function matchAndUpdateBills(
+async function getMatchingPrompt(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  householdId: string
+): Promise<string> {
+  const { data } = await supabase
+    .from("household_settings")
+    .select("matching_prompt")
+    .eq("household_id", householdId)
+    .single();
+
+  return (
+    data?.matching_prompt ||
+    "You are a financial transaction matcher. Given a list of transactions and a list of bills, determine which transactions correspond to which bills. Consider merchant name variations, abbreviations, and partial matches. Return matches as JSON."
+  );
+}
+
+async function llmMatchAndUpdateBills(
   supabase: Awaited<ReturnType<typeof createClient>>,
   householdId: string,
-  parsed: ReturnType<typeof parseCSV>,
-  insertedRows: { id: string }[]
+  transactions: { index: number; date: string; amount: number; description: string; category: string | null }[],
+  transactionIds: string[]
 ) {
-  // Get bills with match patterns
   const { data: bills } = await supabase
     .from("bills")
-    .select("id, match_pattern, amount, household_id")
+    .select("id, name, amount, category, match_pattern")
     .eq("household_id", householdId)
-    .not("match_pattern", "is", null);
+    .eq("is_active", true);
 
-  if (!bills || bills.length === 0) return 0;
+  if (!bills || bills.length === 0) return { matched: 0, billsUpdated: 0 };
 
-  const matches = matchTransactionsToBills(parsed, bills);
-  if (matches.length === 0) return 0;
+  const prompt = await getMatchingPrompt(supabase, householdId);
 
-  // Link transactions to bills
-  for (const match of matches) {
-    const txnRow = insertedRows[match.transactionIndex];
-    if (txnRow) {
-      await supabase
-        .from("transactions")
-        .update({ bill_id: match.billId })
-        .eq("id", txnRow.id);
+  // Process in batches of 50 to stay within token limits
+  const batchSize = 50;
+  let totalMatched = 0;
+  const allLatestByBill = new Map<string, { amount: number; date: string }>();
+
+  for (let i = 0; i < transactions.length; i += batchSize) {
+    const batch = transactions.slice(i, i + batchSize);
+
+    try {
+      const matches = await matchWithLLM(batch, bills, prompt);
+
+      for (const match of matches) {
+        const globalIndex = match.transactionIndex;
+        const txnId = transactionIds[globalIndex];
+        if (txnId) {
+          await supabase
+            .from("transactions")
+            .update({ bill_id: match.billId })
+            .eq("id", txnId);
+          totalMatched++;
+        }
+
+        // Track latest amount per bill
+        const txn = transactions.find((t) => t.index === globalIndex);
+        if (txn) {
+          const existing = allLatestByBill.get(match.billId);
+          if (!existing || txn.date > existing.date) {
+            allLatestByBill.set(match.billId, {
+              amount: Math.abs(txn.amount),
+              date: txn.date,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("LLM matching error for batch:", e);
     }
   }
 
-  // Find the most recent transaction per bill and update amount if changed
-  const latestByBill = new Map<string, { amount: number; date: string }>();
-  for (const match of matches) {
-    const existing = latestByBill.get(match.billId);
-    if (!existing || match.transactionDate > existing.date) {
-      latestByBill.set(match.billId, {
-        amount: match.transactionAmount,
-        date: match.transactionDate,
-      });
-    }
-  }
-
+  // Update bill amounts where they changed
   let billsUpdated = 0;
-  for (const [billId, { amount, date }] of latestByBill) {
+  for (const [billId, { amount, date }] of allLatestByBill) {
     const bill = bills.find((b) => b.id === billId)!;
     if (Math.abs(Number(bill.amount) - amount) < 0.01) continue;
 
-    // Record the old amount in history
     await supabase.from("bill_amount_history").insert({
       bill_id: billId,
       household_id: householdId,
@@ -115,7 +145,6 @@ async function matchAndUpdateBills(
       source: "auto",
     });
 
-    // Update the bill with the new amount
     await supabase
       .from("bills")
       .update({ amount })
@@ -125,7 +154,7 @@ async function matchAndUpdateBills(
     billsUpdated++;
   }
 
-  return billsUpdated;
+  return { matched: totalMatched, billsUpdated };
 }
 
 export async function importTransactions(
@@ -180,13 +209,36 @@ export async function importTransactions(
   // Recalculate account balance = starting_balance + sum(transactions)
   await recalculateBalance(supabase, accountId, householdId);
 
-  // Match transactions to bills and update amounts
-  const billsUpdated = await matchAndUpdateBills(supabase, householdId, parsed, data || []);
+  // Match transactions to bills via LLM
+  let matchResult = { matched: 0, billsUpdated: 0 };
+  if (process.env.OPENAI_API_KEY) {
+    const txnsForMatching = parsed.map((t, i) => ({
+      index: i,
+      date: t.date,
+      amount: t.amount,
+      description: t.description,
+      category: t.category,
+    }));
+    const txnIds = (data || []).map((d) => d.id);
+    matchResult = await llmMatchAndUpdateBills(
+      supabase,
+      householdId,
+      txnsForMatching,
+      txnIds
+    );
+  }
 
   revalidatePath("/accounts");
   revalidatePath("/bills");
+  revalidatePath("/transactions");
   revalidatePath("/");
-  return { success: true, imported, total: rows.length, billsUpdated };
+  return {
+    success: true,
+    imported,
+    total: rows.length,
+    matched: matchResult.matched,
+    billsUpdated: matchResult.billsUpdated,
+  };
 }
 
 export async function getTransactions(accountId: string) {
@@ -201,6 +253,63 @@ export async function getTransactions(accountId: string) {
 
   if (error) return { error: error.message };
   return { data };
+}
+
+export async function rematchTransactions(accountId?: string) {
+  const { supabase, householdId } = await getHouseholdId();
+
+  if (!process.env.OPENAI_API_KEY) {
+    return { error: "OPENAI_API_KEY not configured" };
+  }
+
+  // Clear existing bill links
+  let clearQuery = supabase
+    .from("transactions")
+    .update({ bill_id: null })
+    .eq("household_id", householdId)
+    .not("bill_id", "is", null);
+
+  if (accountId) {
+    clearQuery = clearQuery.eq("account_id", accountId);
+  }
+  await clearQuery;
+
+  // Get all unmatched transactions
+  let txnQuery = supabase
+    .from("transactions")
+    .select("id, date, amount, description, category")
+    .eq("household_id", householdId)
+    .order("date", { ascending: false });
+
+  if (accountId) {
+    txnQuery = txnQuery.eq("account_id", accountId);
+  }
+
+  const { data: txns } = await txnQuery;
+  if (!txns || txns.length === 0) {
+    return { matched: 0, billsUpdated: 0 };
+  }
+
+  const txnsForMatching = txns.map((t, i) => ({
+    index: i,
+    date: t.date,
+    amount: Number(t.amount),
+    description: t.description,
+    category: t.category,
+  }));
+  const txnIds = txns.map((t) => t.id);
+
+  const result = await llmMatchAndUpdateBills(
+    supabase,
+    householdId,
+    txnsForMatching,
+    txnIds
+  );
+
+  revalidatePath("/transactions");
+  revalidatePath("/bills");
+  revalidatePath("/");
+  return { success: true, ...result };
 }
 
 export async function deleteImportBatch(batchId: string) {

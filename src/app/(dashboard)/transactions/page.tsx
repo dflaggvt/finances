@@ -15,6 +15,11 @@ export default async function TransactionsPage({
     .select("*")
     .order("name");
 
+  const { data: bills } = await supabase
+    .from("bills")
+    .select("id, name")
+    .order("name");
+
   let query = supabase
     .from("transactions")
     .select("*")
@@ -33,6 +38,7 @@ export default async function TransactionsPage({
       <TransactionsTable
         transactions={(transactions || []) as Transaction[]}
         accounts={(accounts || []) as Account[]}
+        bills={(bills || []) as { id: string; name: string }[]}
         currentAccountId={accountFilter}
       />
     </div>
