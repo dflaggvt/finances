@@ -192,7 +192,12 @@ export async function discoverBills(): Promise<{
     category: t.category,
   }));
 
+  console.log(`[discoverBills] Sending ${txns.length} unmatched transactions to LLM`);
   const discovered = await discoverBillsWithLLM(txns, existingNames, prompt);
+  console.log(`[discoverBills] LLM returned ${discovered.length} bills`);
+  if (discovered.length > 0) {
+    console.log("[discoverBills] First bill:", JSON.stringify(discovered[0]));
+  }
 
   return {
     data: discovered.map((b) => ({

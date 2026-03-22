@@ -111,21 +111,41 @@ export async function discoverBillsWithLLM(
       if (!content) continue;
 
       const parsed = JSON.parse(content);
-      const bills: DiscoveredBillRaw[] = parsed.bills || [];
+      const rawBills = parsed.bills || [];
+      // Normalize field names — LLM may return "merchant" instead of "name", etc.
+      const bills: DiscoveredBillRaw[] = rawBills.map((b: Record<string, unknown>) => ({
+        name: (b.name || b.merchant || b.bill_name || "") as string,
+        amount: Number(b.amount || 0),
+        due_day: Number(b.due_day || b.day_of_month || b.dueDay || 1),
+        frequency: (b.frequency || "monthly") as string,
+        category: (b.category || "other") as string,
+        bill_type: (b.bill_type || b.billType || b.type || "variable") as string,
+        match_pattern: (b.match_pattern || b.matchPattern || b.keywords || "") as string,
+        confidence: Number(b.confidence || 0.5),
+        sample_transactions: (b.sample_transactions || b.sampleTransactions || b.transactions || []) as string[],
+      }));
+      console.log(`[llm-discovery] Batch returned ${bills.length} bills from LLM`);
+      if (bills.length > 0) {
+        console.log("[llm-discovery] Sample raw bill:", JSON.stringify(bills[0]));
+      }
       allDiscovered.push(...bills);
     } catch (e) {
       console.error("LLM discovery error for batch:", e);
     }
   }
 
+  console.log(`[llm-discovery] Total raw bills: ${allDiscovered.length}`);
+
   // Filter out entries with missing required fields before merging
   const valid = allDiscovered.filter((b) => b && typeof b.name === "string" && b.name.trim());
+  console.log(`[llm-discovery] After name filter: ${valid.length}`);
 
   // Merge duplicates across batches by normalized name
   const merged = mergeDuplicates(valid);
+  console.log(`[llm-discovery] After dedup: ${merged.length}`);
 
   // Validate and filter
-  return merged
+  const filtered = merged
     .filter(
       (b) =>
         b.confidence >= 0.6 &&
@@ -138,6 +158,13 @@ export async function discoverBillsWithLLM(
         VALID_BILL_TYPES.includes(b.bill_type as BillType)
     )
     .sort((a, b) => b.confidence - a.confidence);
+
+  console.log(`[llm-discovery] After validation: ${filtered.length}`);
+  if (filtered.length === 0 && merged.length > 0) {
+    console.log("[llm-discovery] Bills filtered out. Sample rejected bill:", JSON.stringify(merged[0]));
+  }
+
+  return filtered;
 }
 
 function normalizeName(name: string): string {
