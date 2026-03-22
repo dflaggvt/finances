@@ -118,8 +118,11 @@ export async function discoverBillsWithLLM(
     }
   }
 
+  // Filter out entries with missing required fields before merging
+  const valid = allDiscovered.filter((b) => b && typeof b.name === "string" && b.name.trim());
+
   // Merge duplicates across batches by normalized name
-  const merged = mergeDuplicates(allDiscovered);
+  const merged = mergeDuplicates(valid);
 
   // Validate and filter
   return merged
