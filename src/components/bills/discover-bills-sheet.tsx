@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Sparkles, ChevronDown, ChevronRight } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Loader2, Sparkles, ChevronDown, ChevronRight, Merge } from "lucide-react";
 import {
   discoverBills,
   createBillsFromDiscovery,
@@ -31,6 +32,7 @@ import type { DiscoveredBill } from "@/lib/types";
 
 interface EditableBill extends DiscoveredBill {
   selected: boolean;
+  markedForMerge: boolean;
 }
 
 interface DiscoverBillsSheetProps {
@@ -56,7 +58,7 @@ export function DiscoverBillsSheet({ trigger }: DiscoverBillsSheetProps) {
     if (res.error) {
       setError(res.error);
     } else if (res.data) {
-      setBills(res.data.map((b) => ({ ...b, selected: true })));
+      setBills(res.data.map((b) => ({ ...b, selected: true, markedForMerge: false })));
     }
     setLoading(false);
   }
@@ -97,7 +99,56 @@ export function DiscoverBillsSheet({ trigger }: DiscoverBillsSheetProps) {
     setBills((prev) => prev.map((b) => ({ ...b, selected })));
   }
 
+  function toggleMerge(index: number) {
+    setBills((prev) =>
+      prev.map((b, i) =>
+        i === index ? { ...b, markedForMerge: !b.markedForMerge } : b
+      )
+    );
+  }
+
+  function handleMerge() {
+    const toMerge = bills.filter((b) => b.markedForMerge);
+    if (toMerge.length < 2) return;
+
+    // Keep the first one as the primary, merge others into it
+    const primary = { ...toMerge[0] };
+
+    // Combine match patterns (deduplicated)
+    const allPatterns = toMerge
+      .flatMap((b) => b.match_pattern.split(",").map((p) => p.trim().toLowerCase()))
+      .filter(Boolean);
+    primary.match_pattern = [...new Set(allPatterns)].join(", ");
+
+    // Combine sample transactions (deduplicated, max 10)
+    const allSamples = toMerge.flatMap((b) => b.sample_transactions);
+    primary.sample_transactions = [...new Set(allSamples)].slice(0, 10);
+
+    // Use highest confidence
+    primary.confidence = Math.max(...toMerge.map((b) => b.confidence));
+
+    // Use most recent amount (first in list since sorted by confidence)
+    primary.markedForMerge = false;
+
+    // Replace merged bills with the primary
+    const mergedIndices = new Set(
+      bills
+        .map((b, i) => (b.markedForMerge ? i : -1))
+        .filter((i) => i >= 0)
+    );
+    const newBills = bills.filter((_, i) => !mergedIndices.has(i));
+    // Insert primary at the position of the first merged bill
+    const firstIndex = bills.findIndex((b) => b.markedForMerge);
+    newBills.splice(
+      Math.min(firstIndex, newBills.length),
+      0,
+      primary
+    );
+    setBills(newBills);
+  }
+
   const selectedCount = bills.filter((b) => b.selected).length;
+  const mergeCount = bills.filter((b) => b.markedForMerge).length;
 
   return (
     <>
@@ -158,6 +209,16 @@ export function DiscoverBillsSheet({ trigger }: DiscoverBillsSheetProps) {
                     Found {bills.length} potential bills
                   </p>
                   <div className="flex items-center gap-2">
+                    {mergeCount >= 2 && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleMerge}
+                      >
+                        <Merge className="mr-1 h-3 w-3" />
+                        Merge {mergeCount}
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -185,6 +246,7 @@ export function DiscoverBillsSheet({ trigger }: DiscoverBillsSheetProps) {
                       key={index}
                       bill={bill}
                       onChange={(updates) => updateBill(index, updates)}
+                      onToggleMerge={() => toggleMerge(index)}
                     />
                   ))}
                 </div>
@@ -214,9 +276,11 @@ export function DiscoverBillsSheet({ trigger }: DiscoverBillsSheetProps) {
 function DiscoveredBillCard({
   bill,
   onChange,
+  onToggleMerge,
 }: {
   bill: EditableBill;
   onChange: (updates: Partial<EditableBill>) => void;
+  onToggleMerge: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -226,13 +290,26 @@ function DiscoveredBillCard({
       : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
 
   return (
-    <Card className={bill.selected ? "" : "opacity-50"}>
+    <Card className={`${bill.selected ? "" : "opacity-50"} ${bill.markedForMerge ? "ring-2 ring-primary" : ""}`}>
       <CardContent className="space-y-3 pt-4">
         <div className="flex items-start gap-3">
-          <Switch
-            checked={bill.selected}
-            onCheckedChange={(checked) => onChange({ selected: !!checked })}
-          />
+          <div className="flex flex-col gap-2 pt-0.5">
+            <Switch
+              checked={bill.selected}
+              onCheckedChange={(checked) => onChange({ selected: !!checked })}
+            />
+            <button
+              onClick={onToggleMerge}
+              className={`flex items-center justify-center rounded-md border p-1 text-xs ${
+                bill.markedForMerge
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input hover:bg-muted"
+              }`}
+              title="Select for merge"
+            >
+              <Merge className="h-3 w-3" />
+            </button>
+          </div>
           <div className="flex-1 space-y-3">
             <div className="flex items-center justify-between">
               <Input

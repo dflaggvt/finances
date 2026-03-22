@@ -18,10 +18,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent } from "@/components/ui/popover";
-import { MoreHorizontal, Pencil, Trash2, Check, History, Link } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Check, History, Link, Merge } from "lucide-react";
 import { BillForm } from "./bill-form";
 import { BillStatusBadge } from "./bill-status-badge";
-import { deleteBill, markBillPaid, getBillAmountHistory } from "@/app/(dashboard)/bills/actions";
+import { deleteBill, markBillPaid, getBillAmountHistory, mergeBills } from "@/app/(dashboard)/bills/actions";
 import {
   formatCurrency,
   CATEGORY_LABELS,
@@ -37,6 +37,8 @@ interface BillsTableProps {
 
 export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [mergeSelection, setMergeSelection] = useState<Set<string>>(new Set());
+  const [merging, setMerging] = useState(false);
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
   const [history, setHistory] = useState<BillAmountHistory[]>([]);
 
@@ -71,11 +73,61 @@ export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
     await markBillPaid(paymentId);
   }
 
+  function toggleMergeSelection(billId: string) {
+    setMergeSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(billId)) {
+        next.delete(billId);
+      } else {
+        next.add(billId);
+      }
+      return next;
+    });
+  }
+
+  async function handleMerge() {
+    const ids = Array.from(mergeSelection);
+    if (ids.length < 2) return;
+    const [primaryId, ...rest] = ids;
+    setMerging(true);
+    await mergeBills(primaryId, rest);
+    setMergeSelection(new Set());
+    setMerging(false);
+  }
+
   return (
-    <div className="rounded-md border">
+    <div className="space-y-2">
+      {mergeSelection.size >= 2 && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleMerge}
+            disabled={merging}
+          >
+            <Merge className="mr-1 h-3 w-3" />
+            {merging
+              ? "Merging..."
+              : `Merge ${mergeSelection.size} Bills`}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            First selected bill will be kept, others will be merged into it
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMergeSelection(new Set())}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+      <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10">
+              <Merge className="h-3 w-3 text-muted-foreground" />
+            </TableHead>
             <TableHead>Name</TableHead>
             <TableHead className="text-right">Amount</TableHead>
             <TableHead>Due Day</TableHead>
@@ -89,7 +141,7 @@ export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
         <TableBody>
           {bills.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                 No bills yet. Add your first bill to get started.
               </TableCell>
             </TableRow>
@@ -97,7 +149,19 @@ export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
             bills.map((bill) => {
               const nextPayment = getNextPayment(bill.id);
               return (
-                <TableRow key={bill.id}>
+                <TableRow key={bill.id} className={mergeSelection.has(bill.id) ? "bg-primary/5" : ""}>
+                  <TableCell>
+                    <button
+                      onClick={() => toggleMergeSelection(bill.id)}
+                      className={`flex items-center justify-center rounded-md border p-1 ${
+                        mergeSelection.has(bill.id)
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input hover:bg-muted"
+                      }`}
+                    >
+                      <Merge className="h-3 w-3" />
+                    </button>
+                  </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {bill.name}
@@ -208,6 +272,7 @@ export function BillsTable({ bills, payments, accounts }: BillsTableProps) {
           )}
         </TableBody>
       </Table>
+      </div>
     </div>
   );
 }

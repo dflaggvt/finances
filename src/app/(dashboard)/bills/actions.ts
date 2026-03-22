@@ -267,6 +267,83 @@ export async function createBillsFromDiscovery(
   return { success: true, created };
 }
 
+export async function mergeBills(
+  primaryId: string,
+  mergeIds: string[]
+): Promise<{ success?: boolean; error?: string }> {
+  const { supabase, householdId } = await getHouseholdId();
+
+  // Get the primary bill
+  const { data: primary } = await supabase
+    .from("bills")
+    .select("*")
+    .eq("id", primaryId)
+    .eq("household_id", householdId)
+    .single();
+
+  if (!primary) return { error: "Primary bill not found" };
+
+  // Get the bills to merge
+  const { data: mergeBillsList } = await supabase
+    .from("bills")
+    .select("*")
+    .in("id", mergeIds)
+    .eq("household_id", householdId);
+
+  if (!mergeBillsList || mergeBillsList.length === 0) {
+    return { error: "No bills to merge" };
+  }
+
+  // Combine match patterns
+  const allPatterns = [primary, ...mergeBillsList]
+    .map((b) => b.match_pattern || "")
+    .flatMap((p) => p.split(",").map((s: string) => s.trim().toLowerCase()))
+    .filter(Boolean);
+  const combinedPattern = [...new Set(allPatterns)].join(", ");
+
+  // Update primary bill's match pattern
+  await supabase
+    .from("bills")
+    .update({ match_pattern: combinedPattern || null })
+    .eq("id", primaryId)
+    .eq("household_id", householdId);
+
+  // Re-link transactions from merged bills to primary
+  for (const mergeId of mergeIds) {
+    await supabase
+      .from("transactions")
+      .update({ bill_id: primaryId })
+      .eq("bill_id", mergeId)
+      .eq("household_id", householdId);
+
+    // Move bill payment records
+    await supabase
+      .from("bill_payments")
+      .update({ bill_id: primaryId })
+      .eq("bill_id", mergeId)
+      .eq("household_id", householdId);
+
+    // Move amount history
+    await supabase
+      .from("bill_amount_history")
+      .update({ bill_id: primaryId })
+      .eq("bill_id", mergeId)
+      .eq("household_id", householdId);
+  }
+
+  // Delete the merged bills
+  await supabase
+    .from("bills")
+    .delete()
+    .in("id", mergeIds)
+    .eq("household_id", householdId);
+
+  revalidatePath("/bills");
+  revalidatePath("/transactions");
+  revalidatePath("/");
+  return { success: true };
+}
+
 async function generateBillPayments(
   supabase: Awaited<ReturnType<typeof createClient>>,
   bill: Bill,
